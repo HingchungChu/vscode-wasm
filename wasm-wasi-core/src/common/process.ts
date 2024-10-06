@@ -84,6 +84,7 @@ export abstract class WasiProcess {
 	protected readonly options: Omit<ProcessOptions, 'trace'> & { trace: LogOutputChannel | undefined };
 	private localDeviceDrivers: DeviceDrivers;
 	private resolveCallback: ((value: number) => void) | undefined;
+	private rejectCallback: ((error: Error) => void) | undefined;
 	private threadIdCounter: number;
 	private readonly fileDescriptors: FileDescriptors;
 	private environmentService!: EnvironmentWasiService;
@@ -281,6 +282,7 @@ export abstract class WasiProcess {
 		}
 		return new Promise<number>(async (resolve, reject) => {
 			this.resolveCallback = resolve;
+			this.rejectCallback = reject;
 			const clock: Clock = Clock.create();
 			const wasiService: WasiService = Object.assign({},
 				this.environmentService,
@@ -327,6 +329,12 @@ export abstract class WasiProcess {
 	protected resolveRunPromise(exitCode: exitcode): void {
 		if (this.resolveCallback !== undefined) {
 			this.resolveCallback(exitCode);
+		}
+	}
+
+	protected rejectRunPromise(error: Error): void {
+		if (this.rejectCallback !== undefined) {
+			this.rejectCallback(error);
 		}
 	}
 

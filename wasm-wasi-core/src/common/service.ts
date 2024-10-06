@@ -15,7 +15,7 @@ import {
 	poll_oneoff, Prestat, prestat, proc_exit, random_get, riflags, rights, Rights, sched_yield, sdflags, siflags, sock_accept, Subclockflags, Subscription,
 	subscription, thread_spawn, timestamp, WasiError, Whence, whence, thread_exit, tid, Preopentype, sock_shutdown
 } from './wasi';
-import { Offsets, TraceMessage, TraceSummaryMessage, WasiCallMessage, WorkerDoneMessage, WorkerMessage, WorkerReadyMessage } from './connection';
+import { Offsets, TraceMessage, TraceSummaryMessage, WasiCallMessage, WorkerDoneMessage, WorkerErrorMessage, WorkerMessage, WorkerReadyMessage } from './connection';
 import { WasiFunction, WasiFunctions, WasiFunctionSignature } from './wasiMeta';
 import { byte, bytes, cstring, ptr, size, u32, u64 } from './baseTypes';
 import { FileDescriptor, FileDescriptors } from './fileDescriptor';
@@ -29,14 +29,16 @@ import { CapturedPromise } from './promises';
 export abstract class ServiceConnection {
 
 	private readonly wasiService: WasiService;
+	private readonly errorService: ErrorService | undefined;
 	private readonly logChannel: vscode.LogOutputChannel | undefined;
 
 	private readonly _workerReady: CapturedPromise<void>;
 
 	private readonly _workerDone: CapturedPromise<void>;
 
-	constructor(wasiService: WasiService, logChannel?: vscode.LogOutputChannel | undefined) {
+	constructor(wasiService: WasiService, errorService?: ErrorService, logChannel?: vscode.LogOutputChannel | undefined) {
 		this.wasiService = wasiService;
+		this.errorService = errorService;
 		this.logChannel = logChannel;
 		this._workerReady = CapturedPromise.create<void>();
 		this._workerDone = CapturedPromise.create<void>();
@@ -61,6 +63,10 @@ export abstract class ServiceConnection {
 			this._workerReady.resolve();
 		} else if (WorkerDoneMessage.is(message)) {
 			this._workerDone.resolve();
+		} else if (WorkerErrorMessage.is(message)) {
+			const error = new Error(message.message, { cause: 'Wasi Worker' });
+			error.name = message.name;
+			await this.errorService?.throw(error);
 		} else if (this.logChannel !== undefined) {
 			if (TraceMessage.is(message)) {
 				const timeTaken = message.timeTaken;
@@ -118,6 +124,10 @@ export abstract class ServiceConnection {
 		}
 		return params as (number & bigint)[];
 	}
+}
+
+export interface ErrorService {
+	throw(error: Error): Promise<void>;
 }
 
 export interface EnvironmentWasiService {

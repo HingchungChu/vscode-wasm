@@ -13,14 +13,14 @@ import { ptr, u32 } from '../common/baseTypes';
 import type { ServiceMessage, StartMainMessage, StartThreadMessage, WorkerMessage } from '../common/connection';
 import { WasiProcess } from '../common/process';
 import RAL from '../common/ral';
-import { ServiceConnection, WasiService } from '../common/service';
+import { ServiceConnection, WasiService, ErrorService } from '../common/service';
 
 export class NodeServiceConnection extends ServiceConnection {
 
 	private readonly port: MessagePort | Worker;
 
-	constructor(wasiService: WasiService, port: MessagePort | Worker, logChannel?: LogOutputChannel | undefined) {
-		super(wasiService, logChannel);
+	constructor(wasiService: WasiService, port: MessagePort | Worker, errorService?: ErrorService, logChannel?: LogOutputChannel | undefined) {
+		super(wasiService, errorService, logChannel);
 		this.port = port;
 		this.port.on('message', (message: WorkerMessage) => {
 			this.handleMessage(message).catch(RAL().console.error);
@@ -69,7 +69,8 @@ export class NodeWasiProcess extends WasiProcess {
 				this.resolveRunPromise(exitCode);
 			}
 		});
-		const connection = new NodeServiceConnection(wasiService, this.mainWorker, this.options.trace);
+		const errorService: ErrorService = { throw: async (error: Error) => await this.procError(error) };
+		const connection = new NodeServiceConnection(wasiService, this.mainWorker, errorService, this.options.trace);
 		await connection.workerReady();
 		const module = await this.module;
 		this.importsMemory = this.doesImportMemory(module);
@@ -96,12 +97,18 @@ export class NodeWasiProcess extends WasiProcess {
 		worker.on('exit', () => {
 			this.threadWorkers.delete(tid);
 		});
-		const connection = new NodeServiceConnection(wasiService, worker, this.options.trace);
+		const errorService: ErrorService = { throw: async (error: Error) => await this.procError(error) };
+		const connection = new NodeServiceConnection(wasiService, worker, errorService, this.options.trace);
 		await connection.workerReady();
 		const message: StartThreadMessage = { method: 'startThread', module: await this.module, memory: this.memory!, tid, start_arg, trace: this.options.trace !== undefined };
 		connection.postMessage(message);
 		this.threadWorkers.set(tid, worker);
 		return Promise.resolve();
+	}
+
+	protected async procError(error: Error): Promise<void> {
+		await this.procExit();
+		this.rejectRunPromise(error);
 	}
 
 	protected async procExit(): Promise<void> {

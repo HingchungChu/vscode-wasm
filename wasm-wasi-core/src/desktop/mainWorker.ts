@@ -9,7 +9,7 @@ import { MessagePort, Worker, parentPort } from 'worker_threads';
 
 import { TraceWasiHost, Tracer, WasiHost} from '../common/host';
 import { NodeHostConnection } from './connection';
-import { ServiceMessage, StartMainMessage, WorkerReadyMessage } from '../common/connection';
+import { ServiceMessage, StartMainMessage, WorkerReadyMessage, WorkerErrorMessage } from '../common/connection';
 import { CapturedPromise } from '../common/promises';
 
 if (parentPort === null) {
@@ -48,9 +48,18 @@ class MainNodeHostConnection extends NodeHostConnection {
 					memory: memory
 				};
 			}
-			const instance  = await WebAssembly.instantiate(module, imports);
-			host.initialize(memory ?? instance);
-			(instance.exports._start as Function)();
+			try{
+				const instance  = await WebAssembly.instantiate(module, imports);
+				host.initialize(memory ?? instance);
+				(instance.exports._start as Function)();
+			} catch(err: unknown){
+				if(err instanceof Error){
+					const error: WorkerErrorMessage = { method: 'workerError', name: err.name, message: err.message };
+					this.postMessage(error);
+				} else {
+					throw err;
+				}
+			}
 			if (tracer !== undefined) {
 				tracer.printSummary();
 			}

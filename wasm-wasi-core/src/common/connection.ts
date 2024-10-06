@@ -70,6 +70,18 @@ export namespace WorkerDoneMessage {
 	}
 }
 
+export interface WorkerErrorMessage {
+	readonly method: 'workerError';
+	readonly name: string;
+	readonly message: string;
+}
+export namespace WorkerErrorMessage {
+	export function is(message: WorkerMessage): message is WorkerErrorMessage {
+		const candidate = message as WorkerErrorMessage;
+		return candidate && candidate.method === 'workerError';
+	}
+}
+
 export interface TraceMessage {
 	readonly method: 'trace';
 	readonly message: string;

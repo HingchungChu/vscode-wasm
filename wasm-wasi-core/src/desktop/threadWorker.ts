@@ -9,7 +9,7 @@ import { MessagePort, Worker, parentPort } from 'worker_threads';
 
 import { TraceWasiHost, Tracer, WasiHost} from '../common/host';
 import { NodeHostConnection } from './connection';
-import { ServiceMessage, StartThreadMessage, WorkerReadyMessage } from '../common/connection';
+import { ServiceMessage, StartThreadMessage, WorkerReadyMessage, WorkerErrorMessage } from '../common/connection';
 import { CapturedPromise } from '../common/promises';
 
 if (parentPort === null) {
@@ -39,14 +39,23 @@ class ThreadNodeHostConnection extends NodeHostConnection {
 				tracer  = TraceWasiHost.create(this, host);
 				host = tracer.tracer;
 			}
-			const instance = await WebAssembly.instantiate(module, {
-				env: { memory: memory },
-				wasi_snapshot_preview1: host,
-				wasi: host
-			});
-			host.initialize(memory ?? instance);
-			(instance.exports.wasi_thread_start as Function)(message.tid, message.start_arg);
-			host.thread_exit(message.tid);
+			try{
+				const instance = await WebAssembly.instantiate(module, {
+					env: { memory: memory },
+					wasi_snapshot_preview1: host,
+					wasi: host
+				});
+				host.initialize(memory ?? instance);
+				(instance.exports.wasi_thread_start as Function)(message.tid, message.start_arg);
+				host.thread_exit(message.tid);
+			} catch(err: unknown){
+				if(err instanceof Error){
+					const error: WorkerErrorMessage = { method: 'workerError', name: err.name, message: err.message };
+					this.postMessage(error);
+				} else {
+					throw err;
+				}
+			}
 			if (tracer !== undefined) {
 				tracer.printSummary();
 			}

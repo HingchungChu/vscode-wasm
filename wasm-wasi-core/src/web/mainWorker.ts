@@ -7,7 +7,7 @@ RIL.install();
 
 import { TraceWasiHost, Tracer, WasiHost} from '../common/host';
 import { BrowserHostConnection } from './connection';
-import { ServiceMessage, StartMainMessage, WorkerReadyMessage } from '../common/connection';
+import { ServiceMessage, StartMainMessage, WorkerReadyMessage, WorkerErrorMessage } from '../common/connection';
 import { CapturedPromise } from '../common/promises';
 
 class MainBrowserHostConnection extends BrowserHostConnection {
@@ -42,9 +42,18 @@ class MainBrowserHostConnection extends BrowserHostConnection {
 					memory: memory
 				};
 			}
-			const instance  = await WebAssembly.instantiate(module, imports);
-			host.initialize(memory ?? instance);
-			(instance.exports._start as Function)();
+			try{
+				const instance  = await WebAssembly.instantiate(module, imports);
+				host.initialize(memory ?? instance);
+				(instance.exports._start as Function)();
+			} catch(err: unknown){
+				if(err instanceof Error){
+					const error: WorkerErrorMessage = { method: 'workerError', name: err.name, message: err.message };
+					this.postMessage(error);
+				} else {
+					throw err;
+				}
+			}
 			if (tracer !== undefined) {
 				tracer.printSummary();
 			}
